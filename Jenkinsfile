@@ -1,39 +1,86 @@
 pipeline {
     agent any
-    tools {
-    maven 'Maven3'
+    tools{
+        maven 'Maven3'
+
+    }
+
+    environment {
+        PATH = "C:\\Program Files\\Docker\\Docker\\resources\\bin;${env.PATH}"
+        DOCKERHUB_CREDENTIALS_ID = 'Docker_HUB'
+        DOCKER_IMAGE = 'meemmi/inclass'
+        DOCKER_TAG = 'shoppingcart'
     }
 
     stages {
+        stage('Setup Maven') {
+            steps {
+                script {
+                    def mvnHome = tool name: 'Maven3', type: 'maven'
+                    env.PATH = "${mvnHome}/bin:${env.PATH}"
+                }
+            }
+        }
+
         stage('Checkout') {
             steps {
                 git branch: 'main', url: 'https://github.com/meemmi/InClassAssignment_Localization.git'
             }
         }
+
         stage('Build') {
             steps {
-                bat 'mvn clean install'
+                script {
+                    if (isUnix()) {
+                        sh 'mvn clean package -DskipTests'
+                    } else {
+                        bat 'mvn clean package -DskipTests'
+                    }
+                }
             }
         }
+
         stage('Test') {
             steps {
-                bat 'mvn test'
+                script {
+                    if (isUnix()) {
+                        sh 'mvn test'
+                    } else {
+                        bat 'mvn test'
+                    }
+                }
             }
         }
-        stage('Code Coverage') {
+
+        stage('Build Docker Image') {
             steps {
-                bat 'mvn jacoco:report'
+                script {
+                    if (isUnix()) {
+                        sh "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                    } else {
+                        bat "docker build -t ${DOCKER_IMAGE}:${DOCKER_TAG} ."
+                    }
+                }
             }
         }
-        stage('Publish Test Results') {
+
+        stage('Push Docker Image to Docker Hub') {
             steps {
-                junit '**/target/surefire-reports/*.xml'
-            }
-        }
-        stage('Publish Coverage Report') {
-            steps {
-                jacoco()
+                script {
+                    docker.withRegistry('https://index.docker.io/v1/', env.DOCKERHUB_CREDENTIALS_ID) {
+                        docker.image("${DOCKER_IMAGE}:${DOCKER_TAG}").push()
+                    }
+                }
             }
         }
     }
+
+  post {
+    always {
+        junit(testResults: '**/target/surefire-reports/*.xml', allowEmptyResults: true)
+        jacoco(execPattern: '**/target/jacoco.exec', classPattern: '**/target/classes', sourcePattern: '**/src/main/java', inclusionPattern: '**/*.class', exclusionPattern: '')
+    }
+}
+
+
 }
